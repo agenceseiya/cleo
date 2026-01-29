@@ -54,8 +54,12 @@ function updateOpencodeConfig(mcpUrl, mcpHeaders) {
 }
 
 // Middleware
+
+
 app.use(cors());
 app.use(express.json());
+// Serve static files from renderer folder (for web app)
+app.use(express.static(path.join(__dirname, '..', 'renderer')));
 
 // Chat endpoint using provider abstraction
 app.post('/api/chat', async (req, res) => {
