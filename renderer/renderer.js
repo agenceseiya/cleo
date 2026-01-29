@@ -1,3 +1,94 @@
+// Web API compatibility layer (replaces Electron's preload.js)
+const SERVER_URL = window.location.origin;
+let currentAbortController = null;
+
+const webAPI = {
+      abortCurrentRequest: () => {
+                if (currentAbortController) {
+                              console.log('[WEB] Aborting current request');
+                              currentAbortController.abort();
+                              currentAbortController = null;
+                }
+      },
+  
+      stopQuery: async (chatId, provider = 'claude') => {
+                console.log('[WEB] Stopping query for chatId:', chatId, 'provider:', provider);
+                try {
+                              const response = await fetch(`${SERVER_URL}/api/abort`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ chatId, provider })
+                              });
+                              const result = await response.json();
+                              console.log('[WEB] Stop query result:', result);
+                              return result;
+                } catch (error) {
+                              console.error('[WEB] Error stopping query:', error);
+                              return { success: false, error: error.message };
+                }
+      },
+  
+      sendMessage: async (message, chatId, provider = 'claude', model = null) => {
+                if (currentAbortController) {
+                              currentAbortController.abort();
+                }
+                currentAbortController = new AbortController();
+                const signal = currentAbortController.signal;
+        
+                return new Promise((resolve, reject) => {
+                              console.log('[WEB] Sending message to backend:', message);
+                              fetch(`${SERVER_URL}/api/chat`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ message, chatId, provider, model }),
+                                                signal
+                              })
+                              .then(response => {
+                                                if (!response.ok) {
+                                                                      throw new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
+                                                }
+                                                console.log('[WEB] Connected to backend successfully');
+                                                resolve({
+                                                                      getReader: async function() {
+                                                                                                const reader = response.body.getReader();
+                                                                                                const decoder = new TextDecoder();
+                                                                                                return {
+                                                                                                                              read: async () => {
+                                                                                                                                                                try {
+                                                                                                                                                                                                      const { done, value } = await reader.read();
+                                                                                                                                                                                                      if (done) console.log('[WEB] Stream ended');
+                                                                                                                                                                                                      return { done, value: done ? undefined : decoder.decode(value, { stream: true }) };
+                                                                                                                                                                  } catch (readError) {
+                                                                                                                                                                                                      console.error('[WEB] Read error:', readError);
+                                                                                                                                                                                                      throw readError;
+                                                                                                                                                                  }
+                                                                                                                                }
+                                                                                                  };
+                                                                      }
+                                                });
+                              })
+                              .catch(error => {
+                                                console.error('[WEB] Connection error:', error);
+                                                reject(new Error(`Failed to connect to backend: ${error.message}`));
+                              });
+                });
+      },
+  
+      getProviders: async () => {
+                try {
+                              const response = await fetch(`${SERVER_URL}/api/providers`);
+                              if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                              return await response.json();
+                } catch (error) {
+                              console.error('[WEB] Error fetching providers:', error);
+                              return { providers: ['claude'], default: 'claude' };
+                }
+      }
+};
+
+// Use webAPI instead of window.electronAPI (for web app compatibility)
+window.electronAPI = window.electronAPI || webAPI;
+
 // DOM Elements - Views
 const homeView = document.getElementById('homeView');
 const chatView = document.getElementById('chatView');
